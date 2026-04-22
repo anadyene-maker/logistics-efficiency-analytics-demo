@@ -56,4 +56,4 @@ if uploaded_file is not None:
     # Tabela de dados detalhada
     st.write("### Detalhamento por Operador", ranking)
 else:
-    st.warning("⚠️ Por favor, suba o arquivo CSV na barra lateral para gerar o Dashboard.")
+    st.warning("⚠️ Por favor, suba o arquivo CSV na barra lateral para gerar o Dashboard.") 
