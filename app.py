@@ -6,7 +6,7 @@ import numpy as np
 
 st.set_page_config(page_title="Torre de Controle Semalo PRO", layout="wide")
 
-st.title("🚀 Torre de Controle Logística - Semalo")
+st.title("🚀 Análise de Eficiência Logística - Semalo")
 st.markdown("---")
 
 # --- LEITURA AUTOMÁTICA CORRIGIDA ---
