@@ -25,8 +25,10 @@ if uploaded_file is not None:
     df['Lead_Time'] = (df['Entrega'] - df['Faturamento']).dt.days
     df['OTD'] = (df['Entrega'] <= df['Data Agendamento']).astype(int)
     
-    # Criar OPLs fictícios se a coluna não existir (para teste)
-    if 'OPL' not in df.columns:
+    # Mapeamento automático de colunas
+    if 'Logística Ent.' in df.columns:
+        df['OPL'] = df['Logística Ent.']
+    elif 'OPL' not in df.columns:
         import numpy as np
         df['OPL'] = np.random.choice(['Logística Ágil', 'TransRápido', 'Expresso Semalo'], size=len(df))
 
