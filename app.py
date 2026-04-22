@@ -9,15 +9,14 @@ st.set_page_config(page_title="Torre de Controle Semalo PRO", layout="wide")
 st.title("🚀 Torre de Controle Logística - Semalo")
 st.markdown("---")
 
-# --- LEITURA AUTOMÁTICA ---
-# O nome abaixo deve ser EXATAMENTE igual ao que está no GitHub
-nome_do_arquivo = 'Eficiência logística (1).csv'
+# --- LEITURA AUTOMÁTICA CORRIGIDA ---
+nome_do_arquivo = 'Ranking 01(new sheet).csv'
 
 try:
     df = pd.read_csv(nome_do_arquivo, sep=';', encoding='latin1')
     st.sidebar.success(f"✅ Dados carregados: {nome_do_arquivo}")
 except Exception as e:
-    st.sidebar.error(f"❌ Erro ao ler o arquivo: {e}")
+    st.sidebar.error(f"❌ Arquivo não encontrado: {nome_do_arquivo}")
     st.stop()
 
 # --- TRATAMENTO DOS DADOS ---
