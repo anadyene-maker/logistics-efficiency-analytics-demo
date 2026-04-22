@@ -5,7 +5,7 @@ import plotly.express as px
 # Configuração da página para ficar com cara de sistema
 st.set_page_config(page_title="Torre de Controle Semalo", layout="wide")
 
-st.title("📊 Dashboard de Eficiência Logística - Semalo")
+st.title("📊 Eficiência Logística - Semalo")
 st.markdown("---")
 
 # Barra lateral para upload
