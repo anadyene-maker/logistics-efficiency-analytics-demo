@@ -1,58 +1,80 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
-# --- FUNÇÃO DE LIMPEZA (Reutilizando sua base) ---
-def limpar_moeda(valor):
+# --- 1. FUNÇÃO DE CONVERSÃO ROBUSTA ---
+def converter_para_numero(valor):
+    """
+    Transforma 'R$ 1.234,50' em 1234.50.
+    Trata também se o valor já for número ou estiver vazio.
+    """
     if isinstance(valor, str):
-        valor = valor.replace('R$', '').replace('.', '').replace(',', '.').strip()
-        return pd.to_numeric(valor, errors='coerce')
-    return valor
+        # Remove R$, espaços e o ponto do milhar
+        valor = valor.replace('R$', '').replace('.', '').replace(' ', '').replace('\xa0', '')
+        # Troca a vírgula decimal por ponto
+        valor = valor.replace(',', '.')
+        try:
+            return float(valor)
+        except:
+            return 0.0
+    return float(valor) if pd.notna(valor) else 0.0
 
-st.title("⚖️ Auditoria de Compliance Logístico")
+# --- 2. LÓGICA DE AUDITORIA ---
+st.title("⚖️ Auditoria de ICMS - Torre de Controle")
 
-arquivo = st.sidebar.file_uploader("Suba o arquivo Sankhya", type=['csv'])
+arquivo = st.sidebar.file_uploader("Upload do CSV", type=['csv'])
 
 if arquivo:
-    # 1. Leitura e Limpeza Inicial
+    # Lendo o arquivo (ajustado para o padrão do print: sep=';' e latin1)
     df = pd.read_csv(arquivo, sep=';', encoding='latin1')
+    
+    # Limpando nomes das colunas (Sankhya costuma colocar espaços)
     df.columns = [c.strip() for c in df.columns]
-    df['Vlr. Nota'] = df['Vlr. Nota'].apply(limpar_moeda)
 
-    # --- 2. LOGÍCA DE AUDITORIA TRIBUTÁRIA ---
-    st.sidebar.subheader("Parâmetros de Auditoria")
-    # O usuário escolhe a alíquota de acordo com o estado ou operação
-    aliquota = st.sidebar.number_input("Alíquota Fixa de ICMS (%)", min_value=0.0, max_value=30.0, value=12.0) / 100
+    # CONVERSÃO CRUCIAL: Transformando a coluna Vlr. Nota em número real
+    if 'Vlr. Nota' in df.columns:
+        df['Vlr. Nota'] = df['Vlr. Nota'].apply(converter_para_numero)
+    
+    # Parâmetros na Sidebar
+    aliquota = st.sidebar.slider("Alíquota ICMS (%)", 0.0, 25.0, 12.0) / 100
+    margem_erro = 0.05 # Tolerância de 5 centavos
 
-    # Simulando o cálculo do ICMS que deveria estar na nota
+    # --- CÁLCULO DA AUDITORIA ---
+    # 1. Calculamos o que deveria ser o ICMS
     df['ICMS_Calculado'] = df['Vlr. Nota'] * aliquota
-
-    # Aqui criamos a coluna de STATUS
-    # Se você tiver a coluna 'Vlr. ICMS' no arquivo, a comparação seria:
-    # df['Status_Auditoria'] = np.where(df['Vlr. ICMS'] == df['ICMS_Calculado'], "✅ OK", "🚨 DIVERGENTE")
     
-    # Como vamos criar para análise de processo jurídico/tributário:
-    # Vamos marcar como '⚠️ REVISAR' notas com valores muito altos que precisam de atenção jurídica
-    limite_alerta = st.sidebar.number_input("Limite para Alerta Jurídico (R$)", value=5000.0)
+    # NOTA: Se o seu CSV tiver a coluna real do ICMS do Sankhya, 
+    # use o converter_para_numero nela também e compare as duas!
     
-    def avaliar_status(row):
-        if row['Vlr. Nota'] > limite_alerta:
-            return "🔴 Alto Risco (Revisar)"
-        return "🟢 Conformidade"
+    # 2. Criando o Status de Conformidade
+    # Regra: Se o valor da nota for maior que 0, aplicamos a lógica
+    df['Status_Auditoria'] = np.where(
+        df['Vlr. Nota'] > 0, 
+        "✅ CONFORME", 
+        "⚪ SEM VALOR"
+    )
 
-    df['Status_Auditoria'] = df.apply(avaliar_status, axis=1)
+    # Exemplo de verificação de divergência (Simulando que notas acima de R$ 10k precisam de revisão jurídica)
+    df['Status_Auditoria'] = np.where(
+        df['Vlr. Nota'] > 10000, 
+        "🚨 REVISÃO JURÍDICA", 
+        df['Status_Auditoria']
+    )
 
-    # --- 3. EXIBIÇÃO DOS RESULTADOS ---
-    st.subheader("📋 Painel de Conferência")
+    # --- EXIBIÇÃO ---
+    st.subheader("📋 Painel de Auditoria")
     
-    # Colorindo a tabela no Streamlit para facilitar a visão da Torre de Controle
-    def highlight_status(val):
-        color = 'red' if '🔴' in val else 'green'
-        return f'color: {color}'
+    # Formatando para exibição (colocando a vírgula de volta apenas na visualização)
+    df_visualizacao = df.copy()
+    df_visualizacao['Vlr. Nota'] = df_visualizacao['Vlr. Nota'].map('R$ {:,.2f}'.format)
+    df_visualizacao['ICMS_Calculado'] = df_visualizacao['ICMS_Calculado'].map('R$ {:,.2f}'.format)
 
-    # Exibindo apenas colunas relevantes para a auditoria
-    colunas_foco = ['Ordem Carga', 'Cliente', 'U.F', 'Vlr. Nota', 'ICMS_Calculado', 'Status_Auditoria']
-    st.dataframe(df[colunas_foco].style.applymap(highlight_status, subset=['Status_Auditoria']), use_container_width=True)
+    st.dataframe(
+        df_visualizacao[['Ordem Carga', 'U.F', 'Vlr. Nota', 'ICMS_Calculado', 'Status_Auditoria']],
+        use_container_width=True
+    )
 
-    # Métrica de Compliance
-    qtd_alerta = len(df[df['Status_Auditoria'] == "🔴 Alto Risco (Revisar)"])
-    st.metric("Notas em Alerta Jurídico", qtd_alerta, delta="Atenção necessária", delta_color="inverse")
+    # Métricas de Resumo
+    col1, col2 = st.columns(2)
+    col1.metric("Total de Notas", len(df))
+    col2.metric("Notas para Revisão", len(df[df['Status_Auditoria'] == "🚨 REVISÃO JURÍDICA"]))
