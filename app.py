@@ -1,80 +1,92 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import numpy as np
 
-# --- 1. FUNÇÃO DE CONVERSÃO ROBUSTA ---
-def converter_para_numero(valor):
-    """
-    Transforma 'R$ 1.234,50' em 1234.50.
-    Trata também se o valor já for número ou estiver vazio.
-    """
+# --- CONFIGURAÇÃO ---
+st.set_page_config(page_title="Torre de Controle Semalo", layout="wide")
+
+def limpar_valor(valor):
+    """Limpa 'R$ 1.234,50' para 1234.50"""
     if isinstance(valor, str):
-        # Remove R$, espaços e o ponto do milhar
-        valor = valor.replace('R$', '').replace('.', '').replace(' ', '').replace('\xa0', '')
-        # Troca a vírgula decimal por ponto
-        valor = valor.replace(',', '.')
-        try:
-            return float(valor)
-        except:
-            return 0.0
-    return float(valor) if pd.notna(valor) else 0.0
+        valor = valor.replace('R$', '').replace('.', '').replace(',', '.').strip()
+        return pd.to_numeric(valor, errors='coerce')
+    return valor
 
-# --- 2. LÓGICA DE AUDITORIA ---
-st.title("⚖️ Auditoria de ICMS - Torre de Controle")
+# --- INTERFACE ---
+st.title("🚀 Torre de Controle & Compliance Semalo")
+st.markdown("---")
 
-arquivo = st.sidebar.file_uploader("Upload do CSV", type=['csv'])
+arquivo = st.sidebar.file_uploader("📂 Arraste seu relatório do Sankhya aqui", type=['csv'])
 
 if arquivo:
-    # Lendo o arquivo (ajustado para o padrão do print: sep=';' e latin1)
+    # 1. LEITURA E TRATAMENTO (Padrão Sankhya)
     df = pd.read_csv(arquivo, sep=';', encoding='latin1')
-    
-    # Limpando nomes das colunas (Sankhya costuma colocar espaços)
-    df.columns = [c.strip() for c in df.columns]
+    df.columns = [c.strip() for c in df.columns] # Remove espaços invisíveis
 
-    # CONVERSÃO CRUCIAL: Transformando a coluna Vlr. Nota em número real
+    # Tratamento de Moeda
     if 'Vlr. Nota' in df.columns:
-        df['Vlr. Nota'] = df['Vlr. Nota'].apply(converter_para_numero)
-    
-    # Parâmetros na Sidebar
-    aliquota = st.sidebar.slider("Alíquota ICMS (%)", 0.0, 25.0, 12.0) / 100
-    margem_erro = 0.05 # Tolerância de 5 centavos
+        df['Vlr. Nota'] = df['Vlr. Nota'].apply(limpar_valor)
 
-    # --- CÁLCULO DA AUDITORIA ---
-    # 1. Calculamos o que deveria ser o ICMS
-    df['ICMS_Calculado'] = df['Vlr. Nota'] * aliquota
-    
-    # NOTA: Se o seu CSV tiver a coluna real do ICMS do Sankhya, 
-    # use o converter_para_numero nela também e compare as duas!
-    
-    # 2. Criando o Status de Conformidade
-    # Regra: Se o valor da nota for maior que 0, aplicamos a lógica
-    df['Status_Auditoria'] = np.where(
-        df['Vlr. Nota'] > 0, 
-        "✅ CONFORME", 
-        "⚪ SEM VALOR"
-    )
+    # Tratamento de Datas (Crucial para o Lead Time)
+    for col in ['Faturamento', 'Entrega', 'Data Agendamento']:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
 
-    # Exemplo de verificação de divergência (Simulando que notas acima de R$ 10k precisam de revisão jurídica)
-    df['Status_Auditoria'] = np.where(
-        df['Vlr. Nota'] > 10000, 
-        "🚨 REVISÃO JURÍDICA", 
-        df['Status_Auditoria']
-    )
-
-    # --- EXIBIÇÃO ---
-    st.subheader("📋 Painel de Auditoria")
+    # --- 2. CÁLCULOS DE EFICIÊNCIA LOGÍSTICA ---
+    # Lead Time: Dias entre faturamento e entrega real
+    df['Lead_Time'] = (df['Entrega'] - df['Faturamento']).dt.days
     
-    # Formatando para exibição (colocando a vírgula de volta apenas na visualização)
-    df_visualizacao = df.copy()
-    df_visualizacao['Vlr. Nota'] = df_visualizacao['Vlr. Nota'].map('R$ {:,.2f}'.format)
-    df_visualizacao['ICMS_Calculado'] = df_visualizacao['ICMS_Calculado'].map('R$ {:,.2f}'.format)
+    # OTD (On-Time Delivery): 1 se entregue até a data agendada, senão 0
+    df['OTD'] = np.where(df['Entrega'] <= df['Data Agendamento'], 1, 0)
+
+    # --- 3. CÁLCULOS DE AUDITORIA (COMPLIANCE) ---
+    aliquota = st.sidebar.number_input("Alíquota ICMS (%)", value=12.0) / 100
+    df['ICMS_Calc'] = df['Vlr. Nota'] * aliquota
+    
+    # Status de Auditoria (Regra de Negócio)
+    df['Status_Auditoria'] = np.where(df['Vlr. Nota'] > 10000, "🚨 Revisar Jurídico", "✅ Ok")
+
+    # --- 4. DASHBOARD (VISUALIZAÇÃO) ---
+    
+    # Linha 1: Métricas Principais
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("📦 Total Pedidos", len(df))
+    c2.metric("⏱️ Lead Time Médio", f"{df['Lead_Time'].mean():.1f} dias")
+    c3.metric("✅ Eficiência OTD", f"{(df['OTD'].mean()*100):.1f}%")
+    c4.metric("⚖️ Notas p/ Auditoria", len(df[df['Status_Auditoria'] != "✅ Ok"]))
+
+    # Linha 2: Gráficos
+    col_esq, col_dir = st.columns(2)
+    
+    with col_esq:
+        st.subheader("Performance por Transportadora (OPL)")
+        # Gráfico que você gosta: OPL vs Eficiência
+        perf_opl = df.groupby('Logística Ent.').agg({'OTD': 'mean', 'Lead_Time': 'mean'}).reset_index()
+        perf_opl['OTD'] *= 100
+        fig_opl = px.bar(perf_opl, x='Logística Ent.', y='OTD', color='Lead_Time',
+                         title="Eficiência OTD % (Cores = Lead Time Médio)",
+                         color_continuous_scale='RdYlGn_r')
+        st.plotly_chart(fig_opl, use_container_width=True)
+
+    with col_dir:
+        st.subheader("Distribuição Geográfica (Volume)")
+        fig_uf = px.pie(df, values='Vlr. Nota', names='U.F', hole=0.4, title="Faturamento por Estado")
+        st.plotly_chart(fig_uf, use_container_width=True)
+
+    # Linha 3: Tabela Detalhada com Status
+    st.markdown("---")
+    st.subheader("🔍 Auditoria Detalhada de Cargas")
+    
+    # Estilizando a tabela
+    def style_rows(row):
+        return ['background-color: #ffcccc' if row.Status_Auditoria != '✅ Ok' else '' for _ in row]
 
     st.dataframe(
-        df_visualizacao[['Ordem Carga', 'U.F', 'Vlr. Nota', 'ICMS_Calculado', 'Status_Auditoria']],
+        df[['Ordem Carga', 'Logística Ent.', 'U.F', 'Vlr. Nota', 'Lead_Time', 'OTD', 'Status_Auditoria']]
+        .style.apply(style_rows, axis=1), 
         use_container_width=True
     )
 
-    # Métricas de Resumo
-    col1, col2 = st.columns(2)
-    col1.metric("Total de Notas", len(df))
-    col2.metric("Notas para Revisão", len(df[df['Status_Auditoria'] == "🚨 REVISÃO JURÍDICA"]))
+else:
+    st.info("Aguardando upload da planilha Sankhya...")
