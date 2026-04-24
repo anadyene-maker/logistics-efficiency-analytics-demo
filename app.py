@@ -2,85 +2,68 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Configuração da página - Deve ser a primeira linha de comando Streamlit
-st.set_page_config(page_title="Control Tower - Logística & Direito", layout="wide")
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Semalo - Eficiência Logística & Compliance 4.0 ", layout="wide")
 
-st.title("🚀 Análise de Eficiência Logística-Semalo 4.0")
+# --- FUNÇÕES DE APOIO (A "Lógica" por trás) ---
+def limpar_moeda(valor):
+    """Explicação: O Sankhya traz R$ e pontos. Essa função limpa isso para o Python somar."""
+    if isinstance(valor, str):
+        valor = valor.replace('R$', '').replace('.', '').replace(',', '.').strip()
+        return pd.to_numeric(valor, errors='coerce')
+    return valor
+
+# --- INTERFACE PRINCIPAL ---
+st.title("🚀 Torre de Controle Semalo PRO")
 st.markdown("---")
 
-# --- 1. UPLOAD DE ARQUIVOS (MÉTODO MANUAL) ---
-# O file_uploader retorna um objeto de arquivo que o Pandas consegue ler diretamente.
-arquivo_postado = st.sidebar.file_uploader("Arraste sua planilha (CSV ou Excel) aqui", type=['csv', 'xlsx'])
+# 1. Upload do Arquivo (Substituindo o nome de arquivo fixo)
+arquivo = st.sidebar.file_uploader("Upload do Relatório Sankhya (CSV)", type=['csv'])
 
-if arquivo_postado is not None:
-    # Lógica para identificar se é CSV ou Excel (comum em processos jurídicos e fretes)
-    try:
-        if arquivo_postado.name.endswith('.csv'):
-            df = pd.read_csv(arquivo_postado, sep=';', encoding='latin1')
-        else:
-            df = pd.read_excel(arquivo_postado)
-        st.sidebar.success("Arquivo carregado com sucesso!")
-    except Exception as e:
-        st.error(f"Erro ao ler o arquivo: {e}")
-        st.stop()
-
-    # --- 2. LIMPEZA E TRATAMENTO (A MÁGICA DO PANDAS) ---
-    # Convertemos colunas para datetime. O 'errors=coerce' transforma datas inválidas em NaT (Not a Time)
-    df['Faturamento'] = pd.to_datetime(df['Faturamento'], dayfirst=True, errors='coerce')
-    df['Entrega'] = pd.to_datetime(df['Entrega'], dayfirst=True, errors='coerce')
-    df['Data Agendamento'] = pd.to_datetime(df['Data Agendamento'], dayfirst=True, errors='coerce')
-
-    # Dropamos linhas onde o Faturamento é nulo para não quebrar os cálculos de tempo
-    df = df.dropna(subset=['Faturamento'])
-
-    # Cálculo do Lead Time e OTD (On-Time Delivery)
-    df['Lead_Time'] = (df['Entrega'] - df['Faturamento']).dt.days
-    df['OTD'] = (df['Entrega'] <= df['Data Agendamento']).astype(int)
-
-    # --- 3. FILTROS NA SIDEBAR ---
-    st.sidebar.header("Filtros de Análise")
+if arquivo is not None:
+    # Lendo o arquivo - sep=None faz o pandas descobrir se é , ou ; sozinho
+    df = pd.read_csv(arquivo, sep=None, engine='python', encoding='latin1')
     
-    # Filtro de Datas: Pegamos a menor e maior data do faturamento
-    min_date = df['Faturamento'].min().date()
-    max_date = df['Faturamento'].max().date()
+    # Tratamento inicial de colunas (Lógica de Código Limpo)
+    df.columns = [c.strip() for c in df.columns]
     
-    periodo = st.sidebar.date_input("Selecione o Período", [min_date, max_date])
+    # Tratamento de Datas
+    for col in ['Faturamento', 'Entrega', 'Data Agendamento']:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
+    
+    # Tratamento de Valores
+    if 'Vlr. Nota' in df.columns:
+        df['Vlr. Nota'] = df['Vlr. Nota'].apply(limpar_moeda)
 
-    # Filtro de UF
-    ufs = sorted(df['U.F'].unique().astype(str))
-    uf_selecionada = st.sidebar.multiselect("Filtrar por Estado", ufs, default=ufs)
+    # --- NOVO: LÓGICA TRIBUTÁRIA (COMPLIANCE) ---
+    # Aqui simulamos uma conferência: se o frete ou imposto for maior que 15% da nota, avisamos.
+    aliquota_limite = 0.15 
+    df['Check_Compliance'] = df['Vlr. Nota'] * aliquota_limite
 
-    # Aplicando os filtros no DataFrame original
-    # Checamos se o usuário selecionou o range de datas completo (início e fim)
-    if len(periodo) == 2:
-        mask = (df['Faturamento'].dt.date >= periodo[0]) & (df['Faturamento'].dt.date <= periodo[1]) & (df['U.F'].isin(uf_selecionada))
-        df_filtrado = df.loc[mask]
-    else:
-        df_filtrado = df[df['U.F'].isin(uf_selecionada)]
-
-    # --- 4. DASHBOARD E VISUALIZAÇÕES ---
-    if not df_filtrado.empty:
-        # Métricas Principais
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Total de Pedidos", len(df_filtrado))
-        m2.metric("Lead Time Médio", f"{df_filtrado['Lead_Time'].mean():.1f} dias")
-        m3.metric("Eficiência OTD", f"{(df_filtrado['OTD'].mean()*100):.1f}%")
-
-        # Gráfico Minucioso: OTD por Cidade (Análise de Gargalos Regionais)
-        st.subheader("📍 Performance por Cidade")
-        otd_cidade = df_filtrado.groupby('Cidade.').agg({'OTD': 'mean', 'Ordem Carga': 'count'}).reset_index()
-        otd_cidade.columns = ['Cidade', 'Eficiencia_OTD', 'Volume']
-        otd_cidade = otd_cidade.sort_values(by='Volume', ascending=False).head(15)
-
-        fig_city = px.bar(otd_cidade, x='Cidade', y='Volume', color='Eficiencia_OTD',
-                          title="Top 15 Cidades por Volume e Eficiência (Cores)",
-                          color_continuous_scale='RdYlGn')
-        st.plotly_chart(fig_city, use_container_width=True)
+    # --- FILTROS DINÂMICOS ---
+    st.sidebar.subheader("Filtros de Data")
+    if not df['Faturamento'].dropna().empty:
+        min_faturamento = df['Faturamento'].min().date()
+        max_faturamento = df['Faturamento'].max().date()
+        periodo = st.sidebar.date_input("Período", [min_faturamento, max_faturamento])
         
-        st.write("Dica: Cidades em **vermelho** têm alto volume mas baixa eficiência de entrega.")
+        # Aplicando filtro de data
+        if len(periodo) == 2:
+            df = df[(df['Faturamento'].dt.date >= periodo[0]) & (df['Faturamento'].dt.date <= periodo[1])]
 
-    else:
-        st.warning("Nenhum dado encontrado para os filtros selecionados.")
+    # --- DASHBOARD ---
+    # Métricas
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total de Notas", len(df))
+    m2.metric("Valor Total (R$)", f"{df['Vlr. Nota'].sum():,.2f}")
+    
+    # Gráfico Plotly
+    fig = px.bar(df, x='U.F', y='Vlr. Nota', color='Logística Ent.', title="Volume por Estado e Transportador")
+    st.plotly_chart(fig, use_container_width=True)
 
+    # Tabela de conferência
+    st.subheader("🔍 Auditoria de Notas")
+    st.dataframe(df)
 else:
-    st.info("Aguardando upload da planilha para iniciar a análise... 📁")
+    st.info("Aguardando o upload do arquivo para processar...")
