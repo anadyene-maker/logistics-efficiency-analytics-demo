@@ -5,7 +5,7 @@ import plotly.express as px
 # Configuração da página - Deve ser a primeira linha de comando Streamlit
 st.set_page_config(page_title="Control Tower - Logística & Direito", layout="wide")
 
-st.title("🚀 Torre de Controle Logística 4.0")
+st.title("🚀 Análise de Eficiência Logística-Semalo 4.0")
 st.markdown("---")
 
 # --- 1. UPLOAD DE ARQUIVOS (MÉTODO MANUAL) ---
