@@ -1,69 +1,58 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Semalo - Eficiência Logística & Compliance 4.0 ", layout="wide")
-
-# --- FUNÇÕES DE APOIO (A "Lógica" por trás) ---
+# --- FUNÇÃO DE LIMPEZA (Reutilizando sua base) ---
 def limpar_moeda(valor):
-    """Explicação: O Sankhya traz R$ e pontos. Essa função limpa isso para o Python somar."""
     if isinstance(valor, str):
         valor = valor.replace('R$', '').replace('.', '').replace(',', '.').strip()
         return pd.to_numeric(valor, errors='coerce')
     return valor
 
-# --- INTERFACE PRINCIPAL ---
-st.title("🚀 Torre de Controle Semalo PRO")
-st.markdown("---")
+st.title("⚖️ Auditoria de Compliance Logístico")
 
-# 1. Upload do Arquivo (Substituindo o nome de arquivo fixo)
-arquivo = st.sidebar.file_uploader("Upload do Relatório Sankhya (CSV)", type=['csv'])
+arquivo = st.sidebar.file_uploader("Suba o arquivo Sankhya", type=['csv'])
 
-if arquivo is not None:
-    # Lendo o arquivo - sep=None faz o pandas descobrir se é , ou ; sozinho
-    df = pd.read_csv(arquivo, sep=None, engine='python', encoding='latin1')
-    
-    # Tratamento inicial de colunas (Lógica de Código Limpo)
+if arquivo:
+    # 1. Leitura e Limpeza Inicial
+    df = pd.read_csv(arquivo, sep=';', encoding='latin1')
     df.columns = [c.strip() for c in df.columns]
+    df['Vlr. Nota'] = df['Vlr. Nota'].apply(limpar_moeda)
+
+    # --- 2. LOGÍCA DE AUDITORIA TRIBUTÁRIA ---
+    st.sidebar.subheader("Parâmetros de Auditoria")
+    # O usuário escolhe a alíquota de acordo com o estado ou operação
+    aliquota = st.sidebar.number_input("Alíquota Fixa de ICMS (%)", min_value=0.0, max_value=30.0, value=12.0) / 100
+
+    # Simulando o cálculo do ICMS que deveria estar na nota
+    df['ICMS_Calculado'] = df['Vlr. Nota'] * aliquota
+
+    # Aqui criamos a coluna de STATUS
+    # Se você tiver a coluna 'Vlr. ICMS' no arquivo, a comparação seria:
+    # df['Status_Auditoria'] = np.where(df['Vlr. ICMS'] == df['ICMS_Calculado'], "✅ OK", "🚨 DIVERGENTE")
     
-    # Tratamento de Datas
-    for col in ['Faturamento', 'Entrega', 'Data Agendamento']:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
+    # Como vamos criar para análise de processo jurídico/tributário:
+    # Vamos marcar como '⚠️ REVISAR' notas com valores muito altos que precisam de atenção jurídica
+    limite_alerta = st.sidebar.number_input("Limite para Alerta Jurídico (R$)", value=5000.0)
     
-    # Tratamento de Valores
-    if 'Vlr. Nota' in df.columns:
-        df['Vlr. Nota'] = df['Vlr. Nota'].apply(limpar_moeda)
+    def avaliar_status(row):
+        if row['Vlr. Nota'] > limite_alerta:
+            return "🔴 Alto Risco (Revisar)"
+        return "🟢 Conformidade"
 
-    # --- NOVO: LÓGICA TRIBUTÁRIA (COMPLIANCE) ---
-    # Aqui simulamos uma conferência: se o frete ou imposto for maior que 15% da nota, avisamos.
-    aliquota_limite = 0.15 
-    df['Check_Compliance'] = df['Vlr. Nota'] * aliquota_limite
+    df['Status_Auditoria'] = df.apply(avaliar_status, axis=1)
 
-    # --- FILTROS DINÂMICOS ---
-    st.sidebar.subheader("Filtros de Data")
-    if not df['Faturamento'].dropna().empty:
-        min_faturamento = df['Faturamento'].min().date()
-        max_faturamento = df['Faturamento'].max().date()
-        periodo = st.sidebar.date_input("Período", [min_faturamento, max_faturamento])
-        
-        # Aplicando filtro de data
-        if len(periodo) == 2:
-            df = df[(df['Faturamento'].dt.date >= periodo[0]) & (df['Faturamento'].dt.date <= periodo[1])]
-
-    # --- DASHBOARD ---
-    # Métricas
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total de Notas", len(df))
-    m2.metric("Valor Total (R$)", f"{df['Vlr. Nota'].sum():,.2f}")
+    # --- 3. EXIBIÇÃO DOS RESULTADOS ---
+    st.subheader("📋 Painel de Conferência")
     
-    # Gráfico Plotly
-    fig = px.bar(df, x='U.F', y='Vlr. Nota', color='Logística Ent.', title="Volume por Estado e Transportador")
-    st.plotly_chart(fig, use_container_width=True)
+    # Colorindo a tabela no Streamlit para facilitar a visão da Torre de Controle
+    def highlight_status(val):
+        color = 'red' if '🔴' in val else 'green'
+        return f'color: {color}'
 
-    # Tabela de conferência
-    st.subheader("🔍 Auditoria de Notas")
-    st.dataframe(df)
-else:
-    st.info("Aguardando o upload do arquivo para processar...")
+    # Exibindo apenas colunas relevantes para a auditoria
+    colunas_foco = ['Ordem Carga', 'Cliente', 'U.F', 'Vlr. Nota', 'ICMS_Calculado', 'Status_Auditoria']
+    st.dataframe(df[colunas_foco].style.applymap(highlight_status, subset=['Status_Auditoria']), use_container_width=True)
+
+    # Métrica de Compliance
+    qtd_alerta = len(df[df['Status_Auditoria'] == "🔴 Alto Risco (Revisar)"])
+    st.metric("Notas em Alerta Jurídico", qtd_alerta, delta="Atenção necessária", delta_color="inverse")
