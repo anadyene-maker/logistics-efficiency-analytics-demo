@@ -1,1 +1,59 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import numpy as np
 
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Semalo - Torre de Controle MT", layout="wide")
+
+def carregar_e_limpar(file):
+    if file.name.endswith('.csv'):
+        df = pd.read_csv(file, sep=None, engine='python', encoding='latin1')
+    else:
+        df = pd.read_excel(file)
+    df.columns = [c.strip() for c in df.columns]
+    for col in ['Faturamento', 'Entrega', 'Data Agendamento']:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
+    return df
+
+def mapear_regioes_mt(cidade):
+    cidade = str(cidade).upper()
+    if cidade in ['CUIABA', 'VARZEA GRANDE', 'SANTO ANTONIO DO LEVERGER']:
+        return 'Baixada Cuiabana'
+    elif cidade in ['SINOP', 'SORRISO', 'LUCAS DO RIO VERDE', 'NOVA MUTUM']:
+        return 'Norte (Eixo BR-163)'
+    elif cidade in ['RONDONOPOLIS', 'PRIMAVERA DO LESTE', 'JACIARA']:
+        return 'Sul / Sudeste'
+    else:
+        return 'Outras Regiões MT'
+
+# --- INTERFACE ---
+st.sidebar.header("🕹️ Painel MT")
+arquivo = st.sidebar.file_uploader("Upload Planilha", type=['csv', 'xlsx'])
+
+if arquivo:
+    df = carregar_e_limpar(arquivo)
+    df_mt = df[df['U.F'] == 'MT'].copy()
+    
+    if not df_mt.empty:
+        df_mt['Regiao'] = df_mt['Cidade.'].apply(mapear_regioes_mt)
+        
+        # Filtros
+        regioes = sorted(df_mt['Regiao'].unique())
+        regioes_sel = st.sidebar.multiselect("Regiões", regioes, default=regioes)
+        
+        # Cálculos
+        df_final = df_mt[df_mt['Regiao'].isin(regioes_sel)].copy()
+        df_final['OTD'] = np.where(df_final['Entrega'] <= df_final['Data Agendamento'], 1, 0)
+        df_final['Lead_Time'] = (df_final['Entrega'] - df_final['Faturamento']).dt.days
+
+        st.title("📊 Eficiência Logística - MT")
+        c1, c2 = st.columns(2)
+        c1.metric("OTD Médio", f"{(df_final['OTD'].mean()*100):.1f}%")
+        c2.metric("Lead Time Médio", f"{df_final['Lead_Time'].mean():.1f} dias")
+
+        fig = px.bar(df_final.groupby('Regiao')['OTD'].mean().reset_index(), x='Regiao', y='OTD', text_auto='.1%')
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Nenhum dado de MT encontrado.")
