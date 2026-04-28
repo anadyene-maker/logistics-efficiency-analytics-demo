@@ -42,8 +42,14 @@ if arquivo:
             df_mt['Regiao'] = df_mt['Cidade.'].apply(definir_regiao)
             regioes_disponiveis = sorted(df_mt['Regiao'].unique())
             regioes_sel = st.sidebar.multiselect("Regiões", regioes_disponiveis, default=regioes_disponiveis)
-            data_min, data_max = df_mt['Faturamento'].min().date(), df_mt['Faturamento'].max().date()
-            periodo = st.sidebar.date_input("Período", [data_min, data_max])
+            
+            # Ajuste de Datas
+            faturamento_valido = df_mt['Faturamento'].dropna()
+            if not faturamento_valido.empty:
+                data_min, data_max = faturamento_valido.min().date(), faturamento_valido.max().date()
+                periodo = st.sidebar.date_input("Período", [data_min, data_max])
+            else:
+                periodo = []
 
             df_final = df_mt[df_mt['Regiao'].isin(regioes_sel)].copy()
             if len(periodo) == 2:
@@ -98,4 +104,17 @@ if arquivo:
 
             1. **Análise de Eficiência:** O índice de OTD geral está em **{otd_geral:.1f}%**.
             2. **Gargalo Regional:** A região **{pior_regiao}** tem o menor nível (**{pior_valor:.1f}%**).
-            3. **Parecer:** Operação classificada como **{status_texto}**. Recomenda-se auditoria
+            3. **Parecer:** Operação classificada como **{status_texto}**. Recomenda-se auditoria imediata.
+            """
+            if cor_alerta == "success": st.success(relatorio)
+            elif cor_alerta == "warning": st.warning(relatorio)
+            else: st.error(relatorio)
+
+            # --- 7. NOTA DE SEGURANÇA ---
+            st.markdown("---")
+            st.caption("🔒 **Nota de Segurança de Dados:**")
+            st.info("Este sistema processa dados em memória temporária. Nenhuma informação é armazenada no GitHub, garantindo o sigilo empresarial e o compliance com a LGPD.")
+        else:
+            st.warning("⚠️ Não foram encontrados dados para MT neste arquivo.")
+else:
+    st.info("💡 Por favor, faça o upload do arquivo para iniciar a análise.")
