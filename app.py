@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px  # Adicionamos o .express as px para facilitar os gráficos
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Torre de Controle Semalo", layout="wide")
