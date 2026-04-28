@@ -76,3 +76,28 @@ if arquivo:
 
 else:
     st.info("Aguardando upload do arquivo para processar a eficiência.")
+
+# --- 6. RELATÓRIO DE ANÁLISE (O NOVO BLOCO) ---
+    st.markdown("---")
+    st.subheader("📝 Relatório de Análise Operacional")
+    
+    # Cálculos para o texto
+    total_pedidos = len(df_final)
+    otd_geral = df_final['OTD'].mean() * 100
+    pior_regiao = df_final.groupby('Regiao')['OTD'].mean().idxmin()
+    pior_valor = df_final.groupby('Regiao')['OTD'].mean().min() * 100
+
+    # Texto do Relatório
+    relatorio = f"""
+    **Data da Análise:** {pd.Timestamp.now().strftime('%d/%m/%Y')}  
+    **Objeto:** Avaliação de Performance de Entrega - Operador Logístico MT.
+
+    1. **Eficiência Geral:** Identificou-se que o índice de OTD (On-Time Delivery) atual é de **{otd_geral:.1f}%**. 
+       Considerando uma meta de mercado de 90%, a operação apresenta uma deficiência crítica de **{90 - otd_geral:.1f}%**.
+
+    2. **Gargalo Regional:** A região com maior criticidade é a **{pior_regiao}**, apresentando apenas **{pior_valor:.1f}%** de entregas no prazo. 
+
+    3. **Conclusão:** Os dados indicam a necessidade imediata de revisão do plano de rotas ou notificação do operador logístico responsável pelas regiões afetadas para evitar quebras de contrato ou multas por atraso.
+    """
+    
+    st.info(relatorio)
