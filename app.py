@@ -13,7 +13,6 @@ def carregar_dados(file):
             df = pd.read_csv(file, sep=None, engine='python', encoding='latin1')
         else:
             df = pd.read_excel(file)
-        
         df.columns = [c.strip() for c in df.columns]
         for col in ['Faturamento', 'Entrega', 'Data Agendamento']:
             if col in df.columns:
@@ -37,19 +36,14 @@ arquivo = st.sidebar.file_uploader("Suba o relatório do Sankhya", type=['csv', 
 
 if arquivo:
     df_raw = carregar_dados(arquivo)
-    
     if df_raw is not None:
         df_mt = df_raw[df_raw['U.F'] == 'MT'].copy()
-        
         if not df_mt.empty:
             df_mt['Regiao'] = df_mt['Cidade.'].apply(definir_regiao)
-
             regioes_disponiveis = sorted(df_mt['Regiao'].unique())
             regioes_sel = st.sidebar.multiselect("Regiões", regioes_disponiveis, default=regioes_disponiveis)
-            
-            data_min = df_mt['Faturamento'].min().date()
-            data_max = df_mt['Faturamento'].max().date()
-            periodo = st.sidebar.date_input("Período de Faturamento", [data_min, data_max])
+            data_min, data_max = df_mt['Faturamento'].min().date(), df_mt['Faturamento'].max().date()
+            periodo = st.sidebar.date_input("Período", [data_min, data_max])
 
             df_final = df_mt[df_mt['Regiao'].isin(regioes_sel)].copy()
             if len(periodo) == 2:
@@ -58,51 +52,50 @@ if arquivo:
             # --- 4. CÁLCULOS ---
             df_final['OTD'] = np.where(df_final['Entrega'] <= df_final['Data Agendamento'], 1, 0)
             df_final['Lead_Time'] = (df_final['Entrega'] - df_final['Faturamento']).dt.days
+            otd_geral = df_final['OTD'].mean() * 100
 
             # --- 5. DASHBOARD VISUAL ---
             st.title("📈 Performance Logística - Mato Grosso")
-            
             c1, c2, c3 = st.columns(3)
-            otd_geral = df_final['OTD'].mean() * 100
             c1.metric("Total de Pedidos", len(df_final))
             c2.metric("OTD Médio (Eficiência)", f"{otd_geral:.1f}%")
             c3.metric("Lead Time Médio", f"{df_final['Lead_Time'].mean():.1f} dias")
 
             st.subheader("📊 Eficiência por Região (OTD%)")
             df_grafico = df_final.groupby('Regiao')['OTD'].mean().reset_index()
-            
             fig = px.bar(df_grafico, x='Regiao', y='OTD', text_auto='.1%',
-                         color='OTD', color_continuous_scale='RdYlGn', range_color=[0, 1],
-                         title="Percentual de Entregas no Prazo")
+                         color='OTD', color_continuous_scale='RdYlGn', range_color=[0, 1])
             st.plotly_chart(fig, use_container_width=True)
 
             st.subheader("🔍 Detalhamento das Entregas")
             st.dataframe(df_final[['Ordem Carga', 'Cidade.', 'Regiao', 'Lead_Time', 'OTD']], use_container_width=True)
 
-            # --- 6. RELATÓRIO ESCRITO AUTOMÁTICO ---
+            # --- 6. RELATÓRIO COM RÉGUA DE PERFORMANCE ---
             st.markdown("---")
-            st.subheader("📝 Parecer Técnico Operacional")
+            st.subheader("📝 Parecer Técnico e Régua de Performance")
             
+            if otd_geral >= 95: status_texto, cor_alerta = "💎 EXCELÊNCIA", "success"
+            elif otd_geral >= 90: status_texto, cor_alerta = "✅ BOM / ACEITÁVEL", "success"
+            elif otd_geral >= 80: status_texto, cor_alerta = "⚠️ REGULAR (ALERTA)", "warning"
+            else: status_texto, cor_alerta = "🚨 CRÍTICO / DEFICIENTE", "error"
+
+            with st.expander("📊 Veja a Régua de Referência de Mercado (Benchmark)"):
+                st.write("""
+                | Taxa de OTD | Classificação | Ação Recomendada |
+                | :--- | :--- | :--- |
+                | **95% a 100%** | **Excelência** | Manter processos e bonificar. |
+                | **90% a 94%** | **Bom** | Ajustes finos em rotas específicas. |
+                | **80% a 89%** | **Regular** | Notificar operador / Plano de ação. |
+                | **Abaixo de 80%** | **Crítico** | Revisão Contratual / Aplicação de Multas. |
+                """)
+
             pior_regiao = df_grafico.loc[df_grafico['OTD'].idxmin(), 'Regiao']
             pior_valor = df_grafico['OTD'].min() * 100
-            status_operacao = "CRÍTICA" if otd_geral < 70 else "ESTÁVEL"
 
             relatorio = f"""
             **Data do Relatório:** {pd.Timestamp.now().strftime('%d/%m/%Y')}  
-            **Status da Operação:** {status_operacao}
+            **Classificação da Operação:** {status_texto}
 
             1. **Análise de Eficiência:** O índice de OTD geral está em **{otd_geral:.1f}%**.
-            2. **Gargalo Identificado:** A região **{pior_regiao}** apresenta o menor nível de serviço (**{pior_valor:.1f}%**).
-            3. **Recomendação:** Revisão imediata das rotas na região de {pior_regiao}.
-            """
-            st.info(relatorio)
-
-            # --- 7. NOTA DE SEGURANÇA (RESSALVA LGPD) ---
-            st.markdown("---")
-            st.caption("🔒 **Nota de Segurança de Dados:**")
-            st.warning("Este sistema processa dados em memória temporária. Nenhuma informação do faturamento ou logística da Semalo é armazenada no GitHub ou em servidores externos, garantindo o sigilo empresarial e o compliance com a LGPD.")
-
-        else:
-            st.warning("⚠️ Não foram encontrados dados para o estado de Mato Grosso (MT) neste arquivo.")
-else:
-    st.info("💡 Por favor, faça o upload do arquivo Excel ou CSV do Sankhya para iniciar a análise.")
+            2. **Gargalo Regional:** A região **{pior_regiao}** tem o menor nível (**{pior_valor:.1f}%**).
+            3. **Parecer:** Operação classificada como **{status_texto}**. Recomenda-se auditoria
