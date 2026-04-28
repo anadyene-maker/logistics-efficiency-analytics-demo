@@ -14,7 +14,6 @@ def carregar_dados(file):
         else:
             df = pd.read_excel(file)
         
-        # Limpeza de nomes e conversão de datas
         df.columns = [c.strip() for c in df.columns]
         for col in ['Faturamento', 'Entrega', 'Data Agendamento']:
             if col in df.columns:
@@ -40,13 +39,11 @@ if arquivo:
     df_raw = carregar_dados(arquivo)
     
     if df_raw is not None:
-        # Filtro para Mato Grosso
         df_mt = df_raw[df_raw['U.F'] == 'MT'].copy()
         
         if not df_mt.empty:
             df_mt['Regiao'] = df_mt['Cidade.'].apply(definir_regiao)
 
-            # Filtros de Seleção
             regioes_disponiveis = sorted(df_mt['Regiao'].unique())
             regioes_sel = st.sidebar.multiselect("Regiões", regioes_disponiveis, default=regioes_disponiveis)
             
@@ -54,13 +51,11 @@ if arquivo:
             data_max = df_mt['Faturamento'].max().date()
             periodo = st.sidebar.date_input("Período de Faturamento", [data_min, data_max])
 
-            # Aplicando filtros
             df_final = df_mt[df_mt['Regiao'].isin(regioes_sel)].copy()
             if len(periodo) == 2:
                 df_final = df_final[(df_final['Faturamento'].dt.date >= periodo[0]) & (df_final['Faturamento'].dt.date <= periodo[1])]
 
             # --- 4. CÁLCULOS ---
-            # OTD: 1 se entregou no prazo, 0 se atrasou
             df_final['OTD'] = np.where(df_final['Entrega'] <= df_final['Data Agendamento'], 1, 0)
             df_final['Lead_Time'] = (df_final['Entrega'] - df_final['Faturamento']).dt.days
 
@@ -73,7 +68,6 @@ if arquivo:
             c2.metric("OTD Médio (Eficiência)", f"{otd_geral:.1f}%")
             c3.metric("Lead Time Médio", f"{df_final['Lead_Time'].mean():.1f} dias")
 
-            # Gráfico de Cores (Farol)
             st.subheader("📊 Eficiência por Região (OTD%)")
             df_grafico = df_final.groupby('Regiao')['OTD'].mean().reset_index()
             
@@ -82,7 +76,6 @@ if arquivo:
                          title="Percentual de Entregas no Prazo")
             st.plotly_chart(fig, use_container_width=True)
 
-            # Tabela
             st.subheader("🔍 Detalhamento das Entregas")
             st.dataframe(df_final[['Ordem Carga', 'Cidade.', 'Regiao', 'Lead_Time', 'OTD']], use_container_width=True)
 
@@ -92,26 +85,23 @@ if arquivo:
             
             pior_regiao = df_grafico.loc[df_grafico['OTD'].idxmin(), 'Regiao']
             pior_valor = df_grafico['OTD'].min() * 100
-
             status_operacao = "CRÍTICA" if otd_geral < 70 else "ESTÁVEL"
 
             relatorio = f"""
             **Data do Relatório:** {pd.Timestamp.now().strftime('%d/%m/%Y')}  
             **Status da Operação:** {status_operacao}
 
-            1. **Análise de Eficiência:** O índice de OTD (On-Time Delivery) geral está em **{otd_geral:.1f}%**.
-            2. **Gargalo Identificado:** A região **{pior_regiao}** apresenta o menor nível de serviço, com **{pior_valor:.1f}%** de sucesso nas entregas.
-            3. **Recomendação:** Priorizar a revisão logística na região de {pior_regiao} e auditar as datas de agendamento do operador para reduzir o Lead Time médio.
+            1. **Análise de Eficiência:** O índice de OTD geral está em **{otd_geral:.1f}%**.
+            2. **Gargalo Identificado:** A região **{pior_regiao}** apresenta o menor nível de serviço (**{pior_valor:.1f}%**).
+            3. **Recomendação:** Revisão imediata das rotas na região de {pior_regiao}.
             """
             st.info(relatorio)
-            
-            # --- 7. NOTA DE SEGURANÇA E PRIVACIDADE ---
+
+            # --- 7. NOTA DE SEGURANÇA (RESSALVA LGPD) ---
             st.markdown("---")
             st.caption("🔒 **Nota de Segurança de Dados:**")
-            st.warning("Este sistema processa dados em memória temporária. Nenhuma informação do Sankhya é armazenada no GitHub ou em servidores externos, garantindo o sigilo empresarial e o compliance com a LGPD.")
+            st.warning("Este sistema processa dados em memória temporária. Nenhuma informação do faturamento ou logística da Semalo é armazenada no GitHub ou em servidores externos, garantindo o sigilo empresarial e o compliance com a LGPD.")
 
-        else:
-            st.warning("⚠️ Não foram encontrados dados para o estado de Mato Grosso (MT) neste arquivo.")
         else:
             st.warning("⚠️ Não foram encontrados dados para o estado de Mato Grosso (MT) neste arquivo.")
 else:
