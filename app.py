@@ -104,7 +104,14 @@ if arquivo:
             3. **Recomendação:** Priorizar a revisão logística na região de {pior_regiao} e auditar as datas de agendamento do operador para reduzir o Lead Time médio.
             """
             st.info(relatorio)
+            
+            # --- 7. NOTA DE SEGURANÇA E PRIVACIDADE ---
+            st.markdown("---")
+            st.caption("🔒 **Nota de Segurança de Dados:**")
+            st.warning("Este sistema processa dados em memória temporária. Nenhuma informação do Sankhya é armazenada no GitHub ou em servidores externos, garantindo o sigilo empresarial e o compliance com a LGPD.")
 
+        else:
+            st.warning("⚠️ Não foram encontrados dados para o estado de Mato Grosso (MT) neste arquivo.")
         else:
             st.warning("⚠️ Não foram encontrados dados para o estado de Mato Grosso (MT) neste arquivo.")
 else:
