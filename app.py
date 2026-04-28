@@ -1,85 +1,78 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px  # Adicionamos o .express as px para facilitar os gráficos
+import plotly.express as px
 
-# --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="Torre de Controle Semalo", layout="wide")
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Semalo - Eficiência MT", layout="wide")
 
-# Função para limpar moeda (essencial para não dar erro em cálculos)
-def limpar_valor(valor):
-    if isinstance(valor, str):
-        valor = valor.replace('R$', '').replace('.', '').replace(',', '.').replace(' ', '').strip()
-        try: return float(valor)
-        except: return 0.0
-    return float(valor) if pd.notna(valor) else 0.0
+# --- FUNÇÃO DE LIMPEZA ---
+def carregar_dados(file):
+    if file.name.endswith('.csv'):
+        df = pd.read_csv(file, sep=None, engine='python', encoding='latin1')
+    else:
+        df = pd.read_excel(file)
+    
+    # Padronização de colunas e datas
+    df.columns = [c.strip() for c in df.columns]
+    for col in ['Faturamento', 'Entrega', 'Data Agendamento']:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
+    return df
 
-st.sidebar.header("🕹️ Painel de Controle")
-arquivo = st.sidebar.file_uploader("Suba o arquivo (CSV ou XLSX)", type=['csv', 'xlsx'])
+# --- MAPEAMENTO REGIONAL ---
+def definir_regiao(cidade):
+    cidade = str(cidade).upper()
+    if cidade in ['CUIABA', 'VARZEA GRANDE']: return 'Baixada Cuiabana'
+    elif cidade in ['SINOP', 'SORRISO', 'LUCAS DO RIO VERDE']: return 'Norte (Eixo 163)'
+    elif cidade in ['RONDONOPOLIS', 'PRIMAVERA DO LESTE']: return 'Sul/Sudeste'
+    return 'Demais Regiões'
+
+# --- SIDEBAR (FILTROS) ---
+st.sidebar.header("🕹️ Filtros de Operação")
+arquivo = st.sidebar.file_uploader("Suba o relatório Sankhya", type=['csv', 'xlsx'])
 
 if arquivo:
-    try:
-        # --- LEITURA INTELIGENTE ---
-        if arquivo.name.endswith('.csv'):
-            # O segredo: sep=None + engine='python' detecta o separador automaticamente
-            # encoding='latin1' trata os acentos do Sankhya sem dar erro
-            df = pd.read_csv(arquivo, sep=None, engine='python', encoding='latin1', on_bad_lines='skip')
-        else:
-            # Para Excel (xlsx), não precisa de sep ou encoding
-            df = pd.read_excel(arquivo)
+    df = carregar_dados(arquivo)
+    
+    # Filtro automático para MT e criação de Regiões
+    df_mt = df[df['U.F'] == 'MT'].copy()
+    df_mt['Regiao'] = df_mt['Cidade.'].apply(definir_regiao)
 
-        # Limpeza de nomes de colunas (remove espaços que o Sankhya gera)
-        df.columns = [c.strip() for c in df.columns]
+    # Filtros Dinâmicos
+    regioes_sel = st.sidebar.multiselect("Selecione as Regiões", df_mt['Regiao'].unique(), default=df_mt['Regiao'].unique())
+    data_min, data_max = df_mt['Faturamento'].min().date(), df_mt['Faturamento'].max().date()
+    periodo = st.sidebar.date_input("Período", [data_min, data_max])
 
-        # --- PROCESSAMENTO ---
-        # Conversão de Valores
-        if 'Vlr. Nota' in df.columns:
-            df['Vlr. Nota'] = df['Vlr. Nota'].apply(limpar_valor)
+    # Aplicando Filtros
+    df_final = df_mt[df_mt['Regiao'].isin(regioes_sel)].copy()
+    if len(periodo) == 2:
+        df_final = df_final[(df_final['Faturamento'].dt.date >= periodo[0]) & (df_final['Faturamento'].dt.date <= periodo[1])]
 
-        # Conversão de Datas
-        for col in ['Faturamento', 'Entrega', 'Data Agendamento']:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
+    # --- CÁLCULOS DE EFICIÊNCIA ---
+    # OTD (On-Time Delivery): Entrega até a data agendada
+    df_final['OTD'] = np.where(df_final['Entrega'] <= df_final['Data Agendamento'], 1, 0)
+    # Lead Time: Dias corridos entre faturamento e entrega
+    df_final['Lead_Time'] = (df_final['Entrega'] - df_final['Faturamento']).dt.days
 
-        # --- FILTROS NA SIDEBAR ---
-        st.sidebar.markdown("---")
-        
-        # Filtro de UF
-        ufs = sorted([str(x) for x in df['U.F'].unique() if pd.notna(x)])
-        ufs_sel = st.sidebar.multiselect("Filtrar Estados", ufs, default=ufs)
+    # --- DASHBOARD ---
+    st.title("📈 Performance Logística - Mato Grosso")
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total de Pedidos", len(df_final))
+    m2.metric("OTD Médio (Eficiência)", f"{(df_final['OTD'].mean()*100):.1f}%")
+    m3.metric("Lead Time Médio", f"{df_final['Lead_Time'].mean():.1f} dias")
 
-        # Filtro de Data
-        data_min = df['Faturamento'].min().date() if not df['Faturamento'].dropna().empty else None
-        data_max = df['Faturamento'].max().date() if not df['Faturamento'].dropna().empty else None
-        
-        if data_min and data_max:
-            periodo = st.sidebar.date_input("Período de Faturamento", [data_min, data_max])
-        
-        # Parâmetro Auditoria
-        aliquota = st.sidebar.number_input("Alíquota ICMS (%)", value=12.0) / 100
+    # Gráfico de Eficiência
+    st.subheader("📊 Eficiência por Região (OTD%)")
+    fig = px.bar(df_final.groupby('Regiao')['OTD'].mean().reset_index(), 
+                 x='Regiao', y='OTD', text_auto='.1%', color='OTD', 
+                 color_continuous_scale='RdYlGn', title="Entregas no Prazo")
+    st.plotly_chart(fig, use_container_width=True)
 
-        # --- APLICAÇÃO DOS FILTROS ---
-        df_filtrado = df[df['U.F'].isin(ufs_sel)].copy()
-        if 'periodo' in locals() and len(periodo) == 2:
-            df_filtrado = df_filtrado[(df_filtrado['Faturamento'].dt.date >= periodo[0]) & 
-                                      (df_filtrado['Faturamento'].dt.date <= periodo[1])]
+    # Tabela de Auditoria Operacional
+    st.subheader("🔍 Detalhamento das Entregas")
+    st.dataframe(df_final[['Ordem Carga', 'Cidade.', 'Regiao', 'Lead_Time', 'OTD']], use_container_width=True)
 
-        # --- CÁLCULOS LOGÍSTICOS (O que você pediu!) ---
-        df_filtrado['Lead_Time'] = (df_filtrado['Entrega'] - df_filtrado['Faturamento']).dt.days
-        df_filtrado['OTD'] = np.where(df_filtrado['Entrega'] <= df_filtrado['Data Agendamento'], 1, 0)
-        df_filtrado['Status_Auditoria'] = np.where(df_filtrado['Vlr. Nota'] > 10000, "🚨 Revisar", "✅ OK")
-
-        # --- EXIBIÇÃO ---
-        st.title("🚀 Torre de Controle Semalo")
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Pedidos", len(df_filtrado))
-        col2.metric("Eficiência OTD", f"{(df_filtrado['OTD'].mean()*100):.1f}%")
-        col3.metric("Lead Time Médio", f"{df_filtrado['Lead_Time'].mean():.1f} dias")
-
-        st.dataframe(df_filtrado[['Ordem Carga', 'Logística Ent.', 'U.F', 'Vlr. Nota', 'Lead_Time', 'Status_Auditoria']], use_container_width=True)
-
-    except Exception as e:
-        st.error(f"Erro ao processar arquivo: {e}")
 else:
-    st.info("Aguardando upload...")
+    st.info("Aguardando upload do arquivo para processar a eficiência.")
